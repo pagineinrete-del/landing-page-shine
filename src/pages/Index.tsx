@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Instagram } from "lucide-react";
 
@@ -8,29 +8,36 @@ const welcomeWords = [
   { word: "Bienvenue", lang: "Français" },
   { word: "Willkommen", lang: "Deutsch" },
   { word: "Bienvenido", lang: "Español" },
-  { word: "Bem-vindo", lang: "Português" },
-  { word: "Welkom", lang: "Nederlands" },
-  { word: "Välkommen", lang: "Svenska" },
   { word: "ようこそ", lang: "日本語" },
   { word: "환영합니다", lang: "한국어" },
   { word: "欢迎", lang: "中文" },
-  { word: "أهلاً", lang: "العربية" },
   { word: "Добро пожаловать", lang: "Русский" },
-  { word: "Καλώς ήρθατε", lang: "Ελληνικά" },
-  { word: "Hoş geldiniz", lang: "Türkçe" },
-  { word: "Witaj", lang: "Polski" },
-  { word: "Vítejte", lang: "Čeština" },
-  { word: "Velkommen", lang: "Norsk" },
-  { word: "Tervetuloa", lang: "Suomi" },
-  { word: "स्वागत है", lang: "हिन्दी" },
+  { word: "أهلاً", lang: "العربية" },
 ];
+
+interface Enemy {
+  id: number;
+  x: number;
+  y: number;
+}
+
+interface Bullet {
+  id: number;
+  x: number;
+  y: number;
+}
 
 const Index = () => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [score, setScore] = useState(0);
-  const [particles, setParticles] = useState<{ id: number; x: number; y: number }[]>([]);
+  const [playerX, setPlayerX] = useState(50);
+  const [bullets, setBullets] = useState<Bullet[]>([]);
+  const [enemies, setEnemies] = useState<Enemy[]>([]);
+  const [gameOver, setGameOver] = useState(false);
+  const gameRef = useRef<HTMLDivElement>(null);
+  const lastTouchX = useRef(50);
 
-  // Auto-rotate words
+  // Auto-rotate welcome words
   useEffect(() => {
     const interval = setInterval(() => {
       setCurrentIndex((prev) => (prev + 1) % welcomeWords.length);
@@ -38,107 +45,219 @@ const Index = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Handle tap/click interaction
-  const handleInteraction = useCallback((e: React.MouseEvent | React.TouchEvent) => {
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    let x: number, y: number;
-    
-    if ('touches' in e) {
-      x = e.touches[0].clientX - rect.left;
-      y = e.touches[0].clientY - rect.top;
-    } else {
-      x = e.clientX - rect.left;
-      y = e.clientY - rect.top;
-    }
+  // Spawn enemies
+  useEffect(() => {
+    if (gameOver) return;
+    const interval = setInterval(() => {
+      const newEnemy: Enemy = {
+        id: Date.now(),
+        x: Math.random() * 80 + 10,
+        y: 0,
+      };
+      setEnemies((prev) => [...prev, newEnemy]);
+    }, 1500);
+    return () => clearInterval(interval);
+  }, [gameOver]);
 
-    setScore((prev) => prev + 1);
-    setCurrentIndex((prev) => (prev + 1) % welcomeWords.length);
-    
-    // Create particle
-    const newParticle = { id: Date.now(), x, y };
-    setParticles((prev) => [...prev, newParticle]);
-    
-    // Remove particle after animation
-    setTimeout(() => {
-      setParticles((prev) => prev.filter((p) => p.id !== newParticle.id));
-    }, 1000);
-  }, []);
+  // Move enemies down
+  useEffect(() => {
+    if (gameOver) return;
+    const interval = setInterval(() => {
+      setEnemies((prev) => {
+        const updated = prev.map((e) => ({ ...e, y: e.y + 2 }));
+        // Check if any enemy reached bottom
+        if (updated.some((e) => e.y > 85)) {
+          setGameOver(true);
+        }
+        return updated.filter((e) => e.y <= 100);
+      });
+    }, 100);
+    return () => clearInterval(interval);
+  }, [gameOver]);
+
+  // Move bullets up
+  useEffect(() => {
+    if (gameOver) return;
+    const interval = setInterval(() => {
+      setBullets((prev) => prev.map((b) => ({ ...b, y: b.y - 4 })).filter((b) => b.y > 0));
+    }, 50);
+    return () => clearInterval(interval);
+  }, [gameOver]);
+
+  // Collision detection
+  useEffect(() => {
+    if (gameOver) return;
+    setBullets((currentBullets) => {
+      let bulletsToRemove: number[] = [];
+      
+      setEnemies((currentEnemies) => {
+        let enemiesToRemove: number[] = [];
+        
+        currentBullets.forEach((bullet) => {
+          currentEnemies.forEach((enemy) => {
+            const dx = Math.abs(bullet.x - enemy.x);
+            const dy = Math.abs(bullet.y - enemy.y);
+            if (dx < 5 && dy < 5) {
+              bulletsToRemove.push(bullet.id);
+              enemiesToRemove.push(enemy.id);
+              setScore((prev) => prev + 10);
+            }
+          });
+        });
+        
+        return currentEnemies.filter((e) => !enemiesToRemove.includes(e.id));
+      });
+      
+      return currentBullets.filter((b) => !bulletsToRemove.includes(b.id));
+    });
+  }, [bullets, enemies, gameOver]);
+
+  // Handle touch/mouse movement
+  const handleMove = useCallback((clientX: number) => {
+    if (!gameRef.current || gameOver) return;
+    const rect = gameRef.current.getBoundingClientRect();
+    const x = ((clientX - rect.left) / rect.width) * 100;
+    setPlayerX(Math.max(5, Math.min(95, x)));
+    lastTouchX.current = x;
+  }, [gameOver]);
+
+  // Handle shooting
+  const handleShoot = useCallback(() => {
+    if (gameOver) return;
+    const newBullet: Bullet = {
+      id: Date.now(),
+      x: playerX,
+      y: 85,
+    };
+    setBullets((prev) => [...prev, newBullet]);
+  }, [playerX, gameOver]);
+
+  // Restart game
+  const restartGame = () => {
+    setScore(0);
+    setEnemies([]);
+    setBullets([]);
+    setGameOver(false);
+    setPlayerX(50);
+  };
 
   return (
-    <div 
-      className="min-h-screen bg-background flex flex-col items-center justify-center relative overflow-hidden select-none cursor-pointer"
-      onClick={handleInteraction}
-      onTouchStart={handleInteraction}
-    >
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center relative overflow-hidden select-none">
       {/* Score */}
-      <div className="absolute top-4 left-4 text-muted-foreground font-mono text-sm">
+      <div className="absolute top-4 left-4 text-primary font-mono text-sm z-20">
         Score: {score}
       </div>
 
-      {/* Floating particles */}
-      <AnimatePresence>
-        {particles.map((particle) => (
-          <motion.div
-            key={particle.id}
-            className="absolute w-2 h-2 bg-primary"
-            initial={{ 
-              x: particle.x, 
-              y: particle.y, 
-              scale: 1, 
-              opacity: 1 
-            }}
-            animate={{ 
-              y: particle.y - 100, 
-              scale: 0, 
-              opacity: 0 
-            }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 1, ease: "easeOut" }}
-          />
-        ))}
-      </AnimatePresence>
-
-      {/* Main welcome text */}
-      <div className="text-center px-6">
+      {/* Welcome text */}
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 text-center z-20">
         <AnimatePresence mode="wait">
-          <motion.h1
+          <motion.span
             key={currentIndex}
-            className="text-4xl sm:text-5xl md:text-6xl font-mono font-light tracking-wide text-foreground"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
+            className="text-lg font-mono font-light tracking-wide text-foreground"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
             transition={{ duration: 0.5 }}
           >
             {welcomeWords[currentIndex].word}
-          </motion.h1>
+          </motion.span>
         </AnimatePresence>
-
-        <motion.p
-          className="mt-4 text-xs text-muted-foreground font-mono tracking-widest uppercase"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 0.5 }}
-          transition={{ delay: 0.3 }}
-        >
-          {welcomeWords[currentIndex].lang}
-        </motion.p>
       </div>
 
-      {/* Tap hint */}
-      <motion.p
-        className="absolute bottom-24 text-xs text-muted-foreground/50 font-mono"
-        animate={{ opacity: [0.3, 0.6, 0.3] }}
-        transition={{ duration: 2, repeat: Infinity }}
+      {/* Game area */}
+      <div
+        ref={gameRef}
+        className="w-full h-[70vh] relative touch-none"
+        onMouseMove={(e) => handleMove(e.clientX)}
+        onTouchMove={(e) => handleMove(e.touches[0].clientX)}
+        onClick={handleShoot}
+        onTouchStart={(e) => {
+          handleMove(e.touches[0].clientX);
+          handleShoot();
+        }}
       >
-        tap anywhere
-      </motion.p>
+        {/* Stars background */}
+        {[...Array(30)].map((_, i) => (
+          <div
+            key={i}
+            className="absolute w-0.5 h-0.5 bg-foreground/30 rounded-full"
+            style={{
+              left: `${Math.random() * 100}%`,
+              top: `${Math.random() * 100}%`,
+            }}
+          />
+        ))}
+
+        {/* Enemies */}
+        {enemies.map((enemy) => (
+          <motion.div
+            key={enemy.id}
+            className="absolute w-6 h-6 bg-primary"
+            style={{
+              left: `${enemy.x}%`,
+              top: `${enemy.y}%`,
+              transform: "translate(-50%, -50%)",
+            }}
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+          />
+        ))}
+
+        {/* Bullets */}
+        {bullets.map((bullet) => (
+          <div
+            key={bullet.id}
+            className="absolute w-1 h-3 bg-foreground"
+            style={{
+              left: `${bullet.x}%`,
+              top: `${bullet.y}%`,
+              transform: "translate(-50%, -50%)",
+            }}
+          />
+        ))}
+
+        {/* Player ship */}
+        <div
+          className="absolute bottom-[10%] w-0 h-0"
+          style={{
+            left: `${playerX}%`,
+            transform: "translateX(-50%)",
+            borderLeft: "12px solid transparent",
+            borderRight: "12px solid transparent",
+            borderBottom: "20px solid white",
+          }}
+        />
+
+        {/* Game Over overlay */}
+        {gameOver && (
+          <motion.div
+            className="absolute inset-0 bg-background/90 flex flex-col items-center justify-center z-30"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+          >
+            <h2 className="text-2xl font-mono text-primary mb-4">GAME OVER</h2>
+            <p className="text-foreground font-mono mb-6">Score: {score}</p>
+            <button
+              onClick={restartGame}
+              className="px-6 py-2 border border-primary text-primary font-mono hover:bg-primary hover:text-background transition-colors"
+            >
+              RESTART
+            </button>
+          </motion.div>
+        )}
+      </div>
+
+      {/* Instructions */}
+      <p className="absolute bottom-20 text-xs text-muted-foreground/50 font-mono text-center px-4">
+        move & tap to shoot
+      </p>
 
       {/* Instagram link */}
       <a
         href="https://instagram.com/paolillogennaroreal"
         target="_blank"
         rel="noopener noreferrer"
-        className="absolute bottom-8 flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors duration-300"
-        onClick={(e) => e.stopPropagation()}
+        className="absolute bottom-6 flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors duration-300 z-20"
       >
         <Instagram className="w-4 h-4" />
         <span className="text-xs font-mono">@paolillogennaroreal</span>
