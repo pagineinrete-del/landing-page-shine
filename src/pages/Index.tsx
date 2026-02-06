@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Instagram } from "lucide-react";
+
 
 const welcomeWords = [
   { word: "Welcome", lang: "English" },
@@ -27,6 +27,17 @@ interface Bullet {
   y: number;
 }
 
+const gameOverColors = [
+  "text-red-500 border-red-500",
+  "text-blue-500 border-blue-500",
+  "text-green-500 border-green-500",
+  "text-yellow-500 border-yellow-500",
+  "text-purple-500 border-purple-500",
+  "text-pink-500 border-pink-500",
+  "text-cyan-500 border-cyan-500",
+  "text-orange-500 border-orange-500",
+];
+
 const Index = () => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [score, setScore] = useState(0);
@@ -34,6 +45,7 @@ const Index = () => {
   const [bullets, setBullets] = useState<Bullet[]>([]);
   const [enemies, setEnemies] = useState<Enemy[]>([]);
   const [gameOver, setGameOver] = useState(false);
+  const [colorIndex, setColorIndex] = useState(0);
   const gameRef = useRef<HTMLDivElement>(null);
   const lastTouchX = useRef(50);
 
@@ -139,6 +151,7 @@ const Index = () => {
     setBullets([]);
     setGameOver(false);
     setPlayerX(50);
+    setColorIndex((prev) => (prev + 1) % gameOverColors.length);
   };
 
   return (
@@ -153,7 +166,7 @@ const Index = () => {
         <AnimatePresence mode="wait">
           <motion.span
             key={currentIndex}
-            className="text-lg font-mono font-light tracking-wide text-foreground"
+            className="text-3xl md:text-4xl font-mono font-light tracking-wide text-foreground"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -235,11 +248,11 @@ const Index = () => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
           >
-            <h2 className="text-2xl font-mono text-primary mb-4">GAME OVER</h2>
-            <p className="text-foreground font-mono mb-6">Score: {score}</p>
+            <h2 className={`text-2xl font-mono mb-4 ${gameOverColors[colorIndex]}`}>GAME OVER</h2>
+            <p className={`font-mono mb-6 ${gameOverColors[colorIndex]}`}>Score: {score}</p>
             <button
               onClick={restartGame}
-              className="px-6 py-2 border border-primary text-primary font-mono hover:bg-primary hover:text-background transition-colors"
+              className={`px-6 py-2 border font-mono transition-colors ${gameOverColors[colorIndex]} hover:bg-current hover:text-background`}
             >
               RESTART
             </button>
@@ -252,15 +265,14 @@ const Index = () => {
         move & tap to shoot
       </p>
 
-      {/* Instagram link */}
+      {/* Contact link */}
       <a
         href="https://instagram.com/paolillogennaroreal"
         target="_blank"
         rel="noopener noreferrer"
-        className="absolute bottom-6 flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors duration-300 z-20"
+        className="absolute bottom-6 text-muted-foreground hover:text-primary transition-colors duration-300 z-20"
       >
-        <Instagram className="w-4 h-4" />
-        <span className="text-xs font-mono">@paolillogennaroreal</span>
+        <span className="text-xs font-mono uppercase tracking-widest">contact</span>
       </a>
     </div>
   );
