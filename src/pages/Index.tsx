@@ -15,10 +15,16 @@ const welcomeWords = [
   { word: "أهلاً", lang: "العربية" },
 ];
 
+type EnemyType = "basic" | "fast" | "zigzag" | "tank";
+type PowerUpType = "speed" | "multishot" | "shield";
+
 interface Enemy {
   id: number;
   x: number;
   y: number;
+  type: EnemyType;
+  hp: number;
+  startX: number;
 }
 
 interface Bullet {
@@ -26,6 +32,26 @@ interface Bullet {
   x: number;
   y: number;
 }
+
+interface PowerUp {
+  id: number;
+  x: number;
+  y: number;
+  type: PowerUpType;
+}
+
+const enemyConfig: Record<EnemyType, { color: string; speed: number; hp: number; points: number }> = {
+  basic: { color: "bg-primary", speed: 2, hp: 1, points: 10 },
+  fast: { color: "bg-yellow-500", speed: 4, hp: 1, points: 15 },
+  zigzag: { color: "bg-purple-500", speed: 2.5, hp: 1, points: 20 },
+  tank: { color: "bg-orange-600", speed: 1.5, hp: 3, points: 50 },
+};
+
+const powerUpConfig: Record<PowerUpType, { color: string; duration: number }> = {
+  speed: { color: "bg-cyan-400", duration: 5000 },
+  multishot: { color: "bg-green-400", duration: 8000 },
+  shield: { color: "bg-blue-400", duration: 4000 },
+};
 
 const gameOverColors = [
   "text-red-500 border-red-500",
@@ -46,6 +72,8 @@ const Index = () => {
   const [enemies, setEnemies] = useState<Enemy[]>([]);
   const [gameOver, setGameOver] = useState(false);
   const [colorIndex, setColorIndex] = useState(0);
+  const [powerUps, setPowerUps] = useState<PowerUp[]>([]);
+  const [activePowerUps, setActivePowerUps] = useState<Set<PowerUpType>>(new Set());
   const gameRef = useRef<HTMLDivElement>(null);
   const lastTouchX = useRef(50);
 
@@ -57,67 +85,139 @@ const Index = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Spawn enemies
+  // Spawn enemies with variety
   useEffect(() => {
     if (gameOver) return;
     const interval = setInterval(() => {
+      const types: EnemyType[] = ["basic", "basic", "fast", "zigzag", "tank"];
+      const type = types[Math.floor(Math.random() * types.length)];
+      const x = Math.random() * 80 + 10;
       const newEnemy: Enemy = {
-        id: Date.now(),
-        x: Math.random() * 80 + 10,
+        id: Date.now() + Math.random(),
+        x,
         y: 0,
+        type,
+        hp: enemyConfig[type].hp,
+        startX: x,
       };
       setEnemies((prev) => [...prev, newEnemy]);
-    }, 1500);
+    }, 1200);
     return () => clearInterval(interval);
   }, [gameOver]);
 
-  // Move enemies down
+  // Spawn power-ups occasionally
+  useEffect(() => {
+    if (gameOver) return;
+    const interval = setInterval(() => {
+      if (Math.random() < 0.3) {
+        const types: PowerUpType[] = ["speed", "multishot", "shield"];
+        const type = types[Math.floor(Math.random() * types.length)];
+        const newPowerUp: PowerUp = {
+          id: Date.now(),
+          x: Math.random() * 80 + 10,
+          y: 0,
+          type,
+        };
+        setPowerUps((prev) => [...prev, newPowerUp]);
+      }
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [gameOver]);
+
+  // Move enemies down with different behaviors
   useEffect(() => {
     if (gameOver) return;
     const interval = setInterval(() => {
       setEnemies((prev) => {
-        const updated = prev.map((e) => ({ ...e, y: e.y + 2 }));
-        // Check if any enemy reached bottom
-        if (updated.some((e) => e.y > 85)) {
+        const updated = prev.map((e) => {
+          const config = enemyConfig[e.type];
+          let newX = e.x;
+          if (e.type === "zigzag") {
+            newX = e.startX + Math.sin(e.y * 0.1) * 15;
+          }
+          return { ...e, x: newX, y: e.y + config.speed };
+        });
+        if (updated.some((e) => e.y > 85) && !activePowerUps.has("shield")) {
           setGameOver(true);
         }
         return updated.filter((e) => e.y <= 100);
       });
     }, 100);
     return () => clearInterval(interval);
-  }, [gameOver]);
+  }, [gameOver, activePowerUps]);
 
-  // Move bullets up
+  // Move power-ups down
   useEffect(() => {
     if (gameOver) return;
     const interval = setInterval(() => {
-      setBullets((prev) => prev.map((b) => ({ ...b, y: b.y - 4 })).filter((b) => b.y > 0));
-    }, 50);
+      setPowerUps((prev) => prev.map((p) => ({ ...p, y: p.y + 1.5 })).filter((p) => p.y < 100));
+    }, 100);
     return () => clearInterval(interval);
   }, [gameOver]);
 
-  // Collision detection
+  // Check power-up collection
+  useEffect(() => {
+    if (gameOver) return;
+    setPowerUps((currentPowerUps) => {
+      const collected: PowerUp[] = [];
+      const remaining = currentPowerUps.filter((p) => {
+        const dx = Math.abs(p.x - playerX);
+        const dy = Math.abs(p.y - 85);
+        if (dx < 8 && dy < 8) {
+          collected.push(p);
+          return false;
+        }
+        return true;
+      });
+      
+      collected.forEach((p) => {
+        setActivePowerUps((prev) => new Set([...prev, p.type]));
+        setTimeout(() => {
+          setActivePowerUps((prev) => {
+            const next = new Set(prev);
+            next.delete(p.type);
+            return next;
+          });
+        }, powerUpConfig[p.type].duration);
+      });
+      
+      return remaining;
+    });
+  }, [playerX, gameOver]);
+
+  // Move bullets up (faster with speed power-up)
+  useEffect(() => {
+    if (gameOver) return;
+    const bulletSpeed = activePowerUps.has("speed") ? 6 : 4;
+    const interval = setInterval(() => {
+      setBullets((prev) => prev.map((b) => ({ ...b, y: b.y - bulletSpeed })).filter((b) => b.y > 0));
+    }, 50);
+    return () => clearInterval(interval);
+  }, [gameOver, activePowerUps]);
+
+  // Collision detection with HP system
   useEffect(() => {
     if (gameOver) return;
     setBullets((currentBullets) => {
       let bulletsToRemove: number[] = [];
       
       setEnemies((currentEnemies) => {
-        let enemiesToRemove: number[] = [];
-        
-        currentBullets.forEach((bullet) => {
-          currentEnemies.forEach((enemy) => {
+        return currentEnemies.map((enemy) => {
+          let hitEnemy = { ...enemy };
+          currentBullets.forEach((bullet) => {
             const dx = Math.abs(bullet.x - enemy.x);
             const dy = Math.abs(bullet.y - enemy.y);
-            if (dx < 5 && dy < 5) {
+            const hitRadius = enemy.type === "tank" ? 7 : 5;
+            if (dx < hitRadius && dy < hitRadius && !bulletsToRemove.includes(bullet.id)) {
               bulletsToRemove.push(bullet.id);
-              enemiesToRemove.push(enemy.id);
-              setScore((prev) => prev + 10);
+              hitEnemy.hp -= 1;
+              if (hitEnemy.hp <= 0) {
+                setScore((prev) => prev + enemyConfig[enemy.type].points);
+              }
             }
           });
-        });
-        
-        return currentEnemies.filter((e) => !enemiesToRemove.includes(e.id));
+          return hitEnemy;
+        }).filter((e) => e.hp > 0);
       });
       
       return currentBullets.filter((b) => !bulletsToRemove.includes(b.id));
@@ -133,32 +233,52 @@ const Index = () => {
     lastTouchX.current = x;
   }, [gameOver]);
 
-  // Handle shooting
+  // Handle shooting (with multishot power-up)
   const handleShoot = useCallback(() => {
     if (gameOver) return;
-    const newBullet: Bullet = {
-      id: Date.now(),
-      x: playerX,
-      y: 85,
-    };
-    setBullets((prev) => [...prev, newBullet]);
-  }, [playerX, gameOver]);
+    const hasMultishot = activePowerUps.has("multishot");
+    const newBullets: Bullet[] = hasMultishot
+      ? [
+          { id: Date.now(), x: playerX - 3, y: 85 },
+          { id: Date.now() + 1, x: playerX, y: 85 },
+          { id: Date.now() + 2, x: playerX + 3, y: 85 },
+        ]
+      : [{ id: Date.now(), x: playerX, y: 85 }];
+    setBullets((prev) => [...prev, ...newBullets]);
+  }, [playerX, gameOver, activePowerUps]);
 
   // Restart game
   const restartGame = () => {
     setScore(0);
     setEnemies([]);
     setBullets([]);
+    setPowerUps([]);
+    setActivePowerUps(new Set());
     setGameOver(false);
     setPlayerX(50);
     setColorIndex((prev) => (prev + 1) % gameOverColors.length);
   };
 
+  const shieldActive = activePowerUps.has("shield");
+
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center relative overflow-hidden select-none">
-      {/* Score */}
-      <div className="absolute top-4 left-4 text-primary font-mono text-sm z-20">
-        Score: {score}
+      {/* Score & Active Power-ups */}
+      <div className="absolute top-4 left-4 z-20">
+        <div className="text-primary font-mono text-sm">Score: {score}</div>
+        {activePowerUps.size > 0 && (
+          <div className="flex gap-1 mt-2">
+            {activePowerUps.has("speed") && (
+              <span className="text-xs px-2 py-0.5 bg-cyan-400/20 text-cyan-400 rounded">SPEED</span>
+            )}
+            {activePowerUps.has("multishot") && (
+              <span className="text-xs px-2 py-0.5 bg-green-400/20 text-green-400 rounded">MULTI</span>
+            )}
+            {activePowerUps.has("shield") && (
+              <span className="text-xs px-2 py-0.5 bg-blue-400/20 text-blue-400 rounded">SHIELD</span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Welcome text */}
@@ -201,18 +321,40 @@ const Index = () => {
           />
         ))}
 
-        {/* Enemies */}
+        {/* Enemies with different types */}
         {enemies.map((enemy) => (
           <motion.div
             key={enemy.id}
-            className="absolute w-6 h-6 bg-primary"
+            className={`absolute ${enemyConfig[enemy.type].color} ${enemy.type === "tank" ? "w-8 h-8 rounded" : "w-6 h-6"}`}
             style={{
               left: `${enemy.x}%`,
               top: `${enemy.y}%`,
               transform: "translate(-50%, -50%)",
             }}
             initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
+            animate={{ scale: 1, rotate: enemy.type === "zigzag" ? [0, 10, -10, 0] : 0 }}
+            transition={enemy.type === "zigzag" ? { rotate: { repeat: Infinity, duration: 0.5 } } : undefined}
+          >
+            {enemy.type === "tank" && enemy.hp > 1 && (
+              <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-white">
+                {enemy.hp}
+              </span>
+            )}
+          </motion.div>
+        ))}
+
+        {/* Power-ups */}
+        {powerUps.map((powerUp) => (
+          <motion.div
+            key={powerUp.id}
+            className={`absolute w-5 h-5 ${powerUpConfig[powerUp.type].color} rounded-full`}
+            style={{
+              left: `${powerUp.x}%`,
+              top: `${powerUp.y}%`,
+              transform: "translate(-50%, -50%)",
+            }}
+            animate={{ scale: [1, 1.2, 1] }}
+            transition={{ repeat: Infinity, duration: 0.6 }}
           />
         ))}
 
@@ -229,17 +371,26 @@ const Index = () => {
           />
         ))}
 
-        {/* Player ship */}
+        {/* Player ship with shield indicator */}
         <div
-          className="absolute bottom-[10%] w-0 h-0"
+          className={`absolute bottom-[10%] w-0 h-0 ${shieldActive ? "drop-shadow-[0_0_10px_rgba(59,130,246,0.8)]" : ""}`}
           style={{
             left: `${playerX}%`,
             transform: "translateX(-50%)",
             borderLeft: "12px solid transparent",
             borderRight: "12px solid transparent",
-            borderBottom: "20px solid white",
+            borderBottom: shieldActive ? "20px solid #3b82f6" : "20px solid white",
           }}
         />
+        {shieldActive && (
+          <div
+            className="absolute bottom-[8%] w-10 h-10 border-2 border-blue-400 rounded-full opacity-50"
+            style={{
+              left: `${playerX}%`,
+              transform: "translateX(-50%)",
+            }}
+          />
+        )}
 
         {/* Game Over overlay */}
         {gameOver && (
