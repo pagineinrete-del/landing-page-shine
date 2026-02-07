@@ -64,6 +64,28 @@ const gameOverColors = [
   "text-orange-500 border-orange-500",
 ];
 
+// Difficulty levels based on score
+const getDifficultyLevel = (score: number): number => {
+  if (score >= 500) return 5;
+  if (score >= 300) return 4;
+  if (score >= 150) return 3;
+  if (score >= 50) return 2;
+  return 1;
+};
+
+const difficultyConfig: Record<number, { 
+  spawnRate: number; 
+  speedMultiplier: number; 
+  enemyTypes: EnemyType[];
+  levelName: string;
+}> = {
+  1: { spawnRate: 1200, speedMultiplier: 1, enemyTypes: ["basic", "basic", "basic", "fast"], levelName: "EASY" },
+  2: { spawnRate: 1000, speedMultiplier: 1.2, enemyTypes: ["basic", "basic", "fast", "zigzag"], levelName: "NORMAL" },
+  3: { spawnRate: 800, speedMultiplier: 1.4, enemyTypes: ["basic", "fast", "fast", "zigzag", "tank"], levelName: "HARD" },
+  4: { spawnRate: 600, speedMultiplier: 1.6, enemyTypes: ["fast", "fast", "zigzag", "zigzag", "tank"], levelName: "INSANE" },
+  5: { spawnRate: 450, speedMultiplier: 1.8, enemyTypes: ["fast", "zigzag", "zigzag", "tank", "tank"], levelName: "NIGHTMARE" },
+};
+
 const Index = () => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [score, setScore] = useState(0);
@@ -85,11 +107,15 @@ const Index = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Spawn enemies with variety
+  // Calculate current difficulty level
+  const difficultyLevel = getDifficultyLevel(score);
+  const difficulty = difficultyConfig[difficultyLevel];
+
+  // Spawn enemies with variety based on difficulty
   useEffect(() => {
     if (gameOver) return;
     const interval = setInterval(() => {
-      const types: EnemyType[] = ["basic", "basic", "fast", "zigzag", "tank"];
+      const types = difficulty.enemyTypes;
       const type = types[Math.floor(Math.random() * types.length)];
       const x = Math.random() * 80 + 10;
       const newEnemy: Enemy = {
@@ -101,9 +127,9 @@ const Index = () => {
         startX: x,
       };
       setEnemies((prev) => [...prev, newEnemy]);
-    }, 1200);
+    }, difficulty.spawnRate);
     return () => clearInterval(interval);
-  }, [gameOver]);
+  }, [gameOver, difficulty.spawnRate, difficulty.enemyTypes]);
 
   // Spawn power-ups occasionally
   useEffect(() => {
@@ -124,18 +150,19 @@ const Index = () => {
     return () => clearInterval(interval);
   }, [gameOver]);
 
-  // Move enemies down with different behaviors
+  // Move enemies down with different behaviors and difficulty speed
   useEffect(() => {
     if (gameOver) return;
     const interval = setInterval(() => {
       setEnemies((prev) => {
         const updated = prev.map((e) => {
           const config = enemyConfig[e.type];
+          const adjustedSpeed = config.speed * difficulty.speedMultiplier;
           let newX = e.x;
           if (e.type === "zigzag") {
             newX = e.startX + Math.sin(e.y * 0.1) * 15;
           }
-          return { ...e, x: newX, y: e.y + config.speed };
+          return { ...e, x: newX, y: e.y + adjustedSpeed };
         });
         if (updated.some((e) => e.y > 85) && !activePowerUps.has("shield")) {
           setGameOver(true);
@@ -144,7 +171,7 @@ const Index = () => {
       });
     }, 100);
     return () => clearInterval(interval);
-  }, [gameOver, activePowerUps]);
+  }, [gameOver, activePowerUps, difficulty.speedMultiplier]);
 
   // Move power-ups down
   useEffect(() => {
@@ -263,9 +290,21 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center relative overflow-hidden select-none">
-      {/* Score & Active Power-ups */}
+      {/* Score, Level & Active Power-ups */}
       <div className="absolute top-4 left-4 z-20">
         <div className="text-primary font-mono text-sm">Score: {score}</div>
+        <div className="font-mono text-xs mt-1">
+          <span className="text-muted-foreground">Level: </span>
+          <span className={`${
+            difficultyLevel === 1 ? "text-green-400" :
+            difficultyLevel === 2 ? "text-yellow-400" :
+            difficultyLevel === 3 ? "text-orange-400" :
+            difficultyLevel === 4 ? "text-red-400" :
+            "text-purple-400"
+          }`}>
+            {difficulty.levelName}
+          </span>
+        </div>
         {activePowerUps.size > 0 && (
           <div className="flex gap-1 mt-2">
             {activePowerUps.has("speed") && (
